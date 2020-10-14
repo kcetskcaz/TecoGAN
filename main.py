@@ -249,7 +249,7 @@ if FLAGS.mode == 'inference':
         max_iter = len(inference_data.inputs)
                 
         srtime = 0
-        print('Frame evaluation starts!!')
+        print(f'Frame evaluation starts on {len(inference_data.inputs)} frames!!')
         for i in range(max_iter):
             input_im = np.array([inference_data.inputs[i]]).astype(np.float32)
             feed_dict={inputs_raw: input_im}

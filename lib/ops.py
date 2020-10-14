@@ -504,6 +504,7 @@ def gif_summary(name, tensor, max_outputs, fps, collections=None, family=None):
     """
     tensor = tf.image.convert_image_dtype(tensor, dtype=tf.uint8, saturate=True)
     # tensor = tf.convert_to_tensor(tensor)
+    return tf.constant("")
     if summary_op_util.skip_summary():
         return tf.constant("")
     with summary_op_util.summary_scope(name, family, values=[tensor]) as (tag, scope):

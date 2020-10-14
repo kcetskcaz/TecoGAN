@@ -27,8 +27,8 @@ def folder_check(path):
     oripath = path[:-1] if path.endswith('/') else path
     while os.path.exists(path):
         print("Delete existing folder " + path + "?(Y/N)")
-        decision = input()
-        if decision == "Y":
+        # decision = input()
+        if True:
             shutil.rmtree(path, ignore_errors=True)
             break
         else:
@@ -67,7 +67,7 @@ if( runcase == 0 ): # download inference data, trained models
 elif( runcase == 1 ): # inference a trained model
     
     dirstr = './results/' # the place to save the results
-    testpre = ['calendar'] # the test cases
+    testpre = ['falcon_512'] # the test cases
 
     if (not os.path.exists(dirstr)): os.mkdir(dirstr)
     
@@ -84,7 +84,7 @@ elif( runcase == 1 ): # inference a trained model
             "--output_pre", testpre[nn], # the subfolder to save current scene, optional
             "--num_resblock", "16",  # our model has 16 residual blocks, 
             # the pre-trained FRVSR and TecoGAN mini have 10 residual blocks
-            "--checkpoint", './model/TecoGAN',  # the path of the trained model,
+            "--checkpoint", './ex_TecoGAN10-06-16/model-140000',  # the path of the trained model,
             "--output_ext", "png"               # png is more accurate, jpg is smaller
         ]
         mycall(cmd1).communicate()
@@ -132,7 +132,7 @@ elif( runcase == 3 ): # Train TecoGAN
         cmd0 += "unzip model/ofrvsr.zip -d model; rm model/ofrvsr.zip"
         subprocess.call(cmd0, shell=True)
     
-    TrainingDataPath = "/mnt/netdisk/video_data/" 
+    TrainingDataPath = "/mnt/ego/storagepool/data/tumblr/zts/tecogan_data/HR/"
     
     '''Prepare Training Folder'''
     # path appendix, manually define it, or use the current datetime, now_str = "mm-dd-hh"
@@ -177,14 +177,14 @@ elif( runcase == 3 ): # Train TecoGAN
     cmd1 += [
         "--input_video_dir", TrainingDataPath, 
         "--input_video_pre", "scene",
-        "--str_dir", "2000",
-        "--end_dir", "2250",
-        "--end_dir_val", "2290",
-        "--max_frm", "119",
+        "--str_dir", "00000",
+        "--end_dir", "00896",
+        "--end_dir_val", "01023",
+        "--max_frm", "128",
         # -- cpu memory for data loading --
         "--queue_thread", "12",# Cpu threads for the data. >4 to speedup the training
-        "--name_video_queue_capacity", "1024",
-        "--video_queue_capacity", "1024",
+        "--name_video_queue_capacity", "128",
+        "--video_queue_capacity", "128",
     ]
     '''
     loading the pre-trained model from FRVSR can make the training faster
