@@ -133,7 +133,8 @@ elif( runcase == 3 ): # Train TecoGAN
         subprocess.call(cmd0, shell=True)
     
     TrainingDataPath = "/mnt/ego/storagepool/data/tumblr/zts/tecogan_data/HR/"
-    
+    TrainingDataPath_LR = "/mnt/ego/storagepool/data/tumblr/zts/tecogan_data/LR/"
+
     '''Prepare Training Folder'''
     # path appendix, manually define it, or use the current datetime, now_str = "mm-dd-hh"
     now_str = datetime.datetime.now().strftime("%m-%d-%H")
@@ -148,14 +149,14 @@ elif( runcase == 3 ): # Train TecoGAN
         "--RNN_N", "10" , # train with a sequence of RNN_N frames, >6 is better, >10 is not necessary
         "--movingFirstFrame", # a data augmentation
         "--random_crop",
-        "--crop_size", "32",
+        "--crop_size", "128",
         "--learning_rate", "0.00005",
         # -- learning_rate step decay, here it is not used --
         "--decay_step", "500000", 
         "--decay_rate", "1.0", # 1.0 means no decay
         "--stair",
         "--beta", "0.9", # ADAM training parameter beta
-        "--max_iter", "500000", # 500k or more, the one we present is trained for 900k
+        "--max_iter", "750000", # 500k or more, the one we present is trained for 900k
         "--save_freq", "10000", # the frequency we save models
         # -- network architecture parameters --
         "--num_resblock", "16", # FRVSR and TecoGANmini has num_resblock as 10. The TecoGAN has 16.
@@ -175,8 +176,9 @@ elif( runcase == 3 ): # Train TecoGAN
     name_video_queue_capacity, video_queue_capacity: how much memory can be used
     '''
     cmd1 += [
-        "--input_video_dir", TrainingDataPath, 
-        "--input_video_pre", "scene",
+        "--input_video_dir", TrainingDataPath,
+        "--input_video_dir_lr", TrainingDataPath_LR,
+        "--input_video_pre", "train",
         "--str_dir", "00000",
         "--end_dir", "00896",
         "--end_dir_val", "01023",
@@ -263,7 +265,7 @@ elif( runcase == 4 ): # Train FRVSR, loss = l2 warp + l2 content
         "--decay_rate", "1.0", # 1.0 means no decay
         "--stair",
         "--beta", "0.9", # ADAM training parameter beta
-        "--max_iter", "500000", # 500k is usually fine for FRVSR, GAN versions need more to be stable
+        "--max_iter", "750000", # 500k is usually fine for FRVSR, GAN versions need more to be stable
         "--save_freq", "10000", # the frequency we save models
         # -- network architecture parameters --
         "--num_resblock", "10", # a smaller model

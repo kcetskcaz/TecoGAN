@@ -69,6 +69,8 @@ Flags.DEFINE_boolean('movingFirstFrame', True, 'Whether use constant moving firs
 Flags.DEFINE_integer('crop_size', 32, 'The crop size of the training image')
 # Training data settings
 Flags.DEFINE_string('input_video_dir', '', 'The directory of the video input data, for training')
+Flags.DEFINE_string('input_video_dir_lr', '', 'The directory of the video input data, for training')
+
 Flags.DEFINE_string('input_video_pre', 'scene', 'The pre of the directory of the video input data')
 Flags.DEFINE_integer('str_dir', 1000, 'The starting index of the video directory')
 Flags.DEFINE_integer('end_dir', 2000, 'The ending index of the video directory')

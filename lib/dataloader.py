@@ -272,6 +272,119 @@ def loadHR(FLAGS, tar_size):
     return batch_list, num_image_list_HR_t_cur # a k_w_border margin is still there for gaussian blur!!
 
 
+# load hi-res data from disk
+def loadLR(FLAGS, tar_size):
+    # a k_w_border margin should be in tar_size for Gaussian blur
+    print(f'=> Attempting to load from LR: {FLAGS.input_video_dir_lr}')
+    with tf.device('/cpu:0'):
+        # Check the input directory
+        if (FLAGS.input_video_dir_lr == ''):
+            raise ValueError('Video input directory input_video_dir_LR is not provided')
+
+        if (not os.path.exists(FLAGS.input_video_dir_lr)):
+            raise ValueError('Video input directory not found')
+
+        image_list_LR_r = [[] for _ in range(FLAGS.RNN_N)]  # all empty lists
+
+        inputDir = os.path.join(FLAGS.input_video_dir_lr, '%s' % (FLAGS.input_video_pre))
+        if (os.path.exists(inputDir)):  # the following names are hard coded
+            if not os.path.exists(os.path.join(inputDir, '%05d.png' % FLAGS.max_frm)):
+                print("Skip %s, since foler doesn't contain enough frames!" % inputDir)
+            else:
+                for fi in range(FLAGS.RNN_N):
+                    image_list_LR_r[fi] += [os.path.join(inputDir, '%05d.png' % frame_i)
+                                            for frame_i in range(fi, FLAGS.max_frm - FLAGS.RNN_N + fi + 1)]
+
+        num_image_list_LR_t_cur = len(image_list_LR_r[0])
+        if num_image_list_LR_t_cur == 0:
+            raise Exception('No frame files in the video input directory')
+
+        image_list_LR_r = [tf.convert_to_tensor(_, dtype=tf.string) for _ in image_list_LR_r]
+
+        with tf.variable_scope('load_frame'):
+            # define the image list queue
+            output = tf.train.slice_input_producer(image_list_LR_r, shuffle=False, \
+                                                   capacity=int(FLAGS.name_video_queue_capacity))
+            output_names = output
+
+            data_list_LR_r = []  # high res rgb, in range 0-1, shape any
+
+            if FLAGS.movingFirstFrame and FLAGS.mode == 'train':  # our data augmentation, moving first frame to mimic camera motion
+                print('[Config] Use random crop')
+                offset_xy = tf.cast(tf.floor(tf.random_uniform([FLAGS.RNN_N, 2], -3.5, 4.5)), dtype=tf.int32)
+                # [FLAGS.RNN_N , 2], shifts
+                pos_xy = tf.cumsum(offset_xy, axis=0, exclusive=True)  # relative positions
+                min_pos = tf.reduce_min(pos_xy, axis=0)
+                range_pos = tf.reduce_max(pos_xy, axis=0) - min_pos  # [ shrink x, shrink y ]
+                lefttop_pos = pos_xy - min_pos  # crop point
+                moving_decision = tf.random_uniform([], 0, 1, dtype=tf.float32)
+
+            for fi in range(FLAGS.RNN_N):
+                LR_data = tf.image.convert_image_dtype(tf.image.decode_png(tf.read_file(output[fi]), channels=3),
+                                                       dtype=tf.float32)
+                if (FLAGS.movingFirstFrame):
+                    if (fi == 0):
+                        LR_data_0 = tf.identity(LR_data)
+                        target_size = tf.shape(LR_data_0)
+
+                    LR_data_1 = tf.image.crop_to_bounding_box(LR_data_0,
+                                                              lefttop_pos[fi][1], lefttop_pos[fi][0],
+                                                              target_size[0] - range_pos[1],
+                                                              target_size[1] - range_pos[0])
+                    LR_data = tf.cond(moving_decision < 0.7, lambda: tf.identity(LR_data),
+                                      lambda: tf.identity(LR_data_1))
+                    output_names[fi] = tf.cond(moving_decision < 0.7, lambda: tf.identity(output_names[fi]),
+                                               lambda: tf.identity(output_names[0]))
+                data_list_LR_r.append(LR_data)
+
+            target_images = data_list_LR_r
+
+        # Other data augmentation part
+        with tf.name_scope('data_preprocessing'):
+
+            with tf.name_scope('random_crop'):
+                # Check whether perform crop
+                if (FLAGS.random_crop is True) and FLAGS.mode == 'train':
+                    print('[Config] Use random crop')
+                    target_size = tf.shape(target_images[0])
+
+                    offset_w = tf.cast(tf.floor(tf.random_uniform([], 0, \
+                                                                  tf.cast(target_size[1], tf.float32) - tar_size)),
+                                       dtype=tf.int32)
+                    offset_h = tf.cast(tf.floor(tf.random_uniform([], 0, \
+                                                                  tf.cast(target_size[0], tf.float32) - tar_size)),
+                                       dtype=tf.int32)
+
+                    for frame_t in range(FLAGS.RNN_N):
+                        target_images[frame_t] = tf.image.crop_to_bounding_box(target_images[frame_t],
+                                                                               offset_h, offset_w, tar_size, tar_size)
+
+                else:
+                    raise Exception('Not implemented')
+
+            with tf.variable_scope('random_flip'):
+                # Check for random flip:
+                if (FLAGS.flip is True) and (FLAGS.mode == 'train'):
+                    print('[Config] Use random flip')
+                    # Produce the decision of random flip
+                    flip_decision = tf.random_uniform([], 0, 1, dtype=tf.float32)
+                    for frame_t in range(FLAGS.RNN_N):
+                        target_images[frame_t] = random_flip(target_images[frame_t], flip_decision)
+
+            for frame_t in range(FLAGS.RNN_N):
+                target_images[frame_t].set_shape([tar_size, tar_size, 3])
+
+        if FLAGS.mode == 'train':
+            print('Sequenced batches: {}, sequence length: {}'.format(num_image_list_LR_t_cur, FLAGS.RNN_N))
+            batch_list = tf.train.shuffle_batch(output_names + target_images, \
+                                                batch_size=int(FLAGS.batch_size),
+                                                capacity=FLAGS.video_queue_capacity + FLAGS.video_queue_batch * FLAGS.max_frm,
+                                                min_after_dequeue=FLAGS.video_queue_capacity,
+                                                num_threads=FLAGS.queue_thread, seed=FLAGS.rand_seed)
+        else:
+            raise Exception('Not implemented')
+    return batch_list, num_image_list_LR_t_cur  # a k_w_border margin is still there for gaussian blur!!
+
 def frvsr_gpu_data_loader(FLAGS, useValData_ph): # useValData_ph, tf bool placeholder, whether to use validationdata
     Data = collections.namedtuple('Data', 'paths_HR, s_inputs, s_targets, image_count, steps_per_epoch')
     tar_size = FLAGS.crop_size
@@ -279,13 +392,15 @@ def frvsr_gpu_data_loader(FLAGS, useValData_ph): # useValData_ph, tf bool placeh
     k_w_border = int(1.5 * 3.0)
     
     loadHRfunc = loadHR if FLAGS.queue_thread > 4 else loadHR_batch
+    loadLRfunc = loadLR
     # loadHR_batch load 120 frames at once, is faster for a single queue, and usually will be slower and slower for larger queue_thread
     # loadHR load RNN_N frames at once, is faster when queue_thread > 4, but slow for queue_thread < 4
     
     with tf.name_scope('load_frame_cpu'):
         with tf.name_scope('train_data'):
             print("Preparing train_data")
-            batch_list, num_image_list_HR_t_cur = loadHRfunc(FLAGS, tar_size)
+            batch_list_hr, num_image_list_HR_t_cur = loadHRfunc(FLAGS, tar_size)
+            batch_list_lr, num_image_list_LR_t_cur = loadLRfunc(FLAGS, tar_size)
         with tf.name_scope('validation_data'):
             print("Preparing validation_data")
             val_capacity = 16 # TODO parameter!
@@ -293,11 +408,15 @@ def frvsr_gpu_data_loader(FLAGS, useValData_ph): # useValData_ph, tf bool placeh
             valFLAGS = copy_update_configuration(FLAGS, \
                 {"str_dir":FLAGS.end_dir + 1,"end_dir":FLAGS.end_dir_val,"name_video_queue_capacity":val_capacity,\
                     "video_queue_capacity":val_capacity, "queue_thread":val_q_thread})
-            vald_batch_list, vald_num_image_list_HR_t_cur = loadHRfunc(valFLAGS, tar_size)
+            vald_batch_list_hr, vald_num_image_list_HR_t_cur = loadHRfunc(valFLAGS, tar_size)
+            vald_batch_list_lr, vald_num_image_list_LR_t_cur = loadLRfunc(valFLAGS, tar_size)
             
-    HR_images = list(batch_list[FLAGS.RNN_N::])# batch high-res images
-    HR_images_vald = list(vald_batch_list[FLAGS.RNN_N::])# test batch high-res images
-    
+    HR_images = list(batch_list_hr[FLAGS.RNN_N::])# batch high-res images
+    HR_images_vald = list(vald_batch_list_hr[FLAGS.RNN_N::])# test batch high-res images
+
+    LR_images = list(batch_list_lr[FLAGS.RNN_N::])  # batch low-res images
+    LR_images_vald = list(vald_batch_list_lr[FLAGS.RNN_N::])  # test batch low-res images
+
     steps_per_epoch = num_image_list_HR_t_cur // FLAGS.batch_size
     
     target_images = []
@@ -309,11 +428,21 @@ def frvsr_gpu_data_loader(FLAGS, useValData_ph): # useValData_ph, tf bool placeh
                     return HR_images[frame_t]
                 def getValdHR():
                     return HR_images_vald[frame_t]
-                    
+                def getTrainLR():
+                    return LR_images[frame_t]
+                def getValdLR():
+                    return LR_images_vald[frame_t]
+
                 curHR = tf.cond( useValData_ph, getValdHR, getTrainHR )
-                input_images.append( tf_data_gaussDownby4(curHR, 1.5) )
-                
-                input_images[frame_t].set_shape([FLAGS.batch_size,FLAGS.crop_size, FLAGS.crop_size, 3])
+                curLR = tf.cond(useValData_ph, getValdLR, getTrainLR)
+
+                # test = tf_data_gaussDownby4(curHR, 1.5)
+                input_images.append(tf.image.crop_to_bounding_box(curLR,
+                                k_w_border, k_w_border, \
+                                FLAGS.crop_size,\
+                                FLAGS.crop_size) )
+
+                input_images[frame_t].set_shape([FLAGS.batch_size, FLAGS.crop_size, FLAGS.crop_size, 3])
                 input_images[frame_t] = preprocessLR(input_images[frame_t])
                 
                 target_images.append(tf.image.crop_to_bounding_box(curHR, 
@@ -332,12 +461,17 @@ def frvsr_gpu_data_loader(FLAGS, useValData_ph): # useValData_ph, tf bool placeh
         
     #Data = collections.namedtuple('Data', 'paths_HR, s_inputs, s_targets, image_count, steps_per_epoch')
     def getTrainHRpath():
-        return batch_list[:FLAGS.RNN_N]
+        return batch_list_hr[:FLAGS.RNN_N]
     def getValdHRpath():
-        return vald_batch_list[:FLAGS.RNN_N]
-        
+        return vald_batch_list_hr[:FLAGS.RNN_N]
+    def getTrainLRpath():
+        return batch_list_lr[:FLAGS.RNN_N]
+    def getValdLRpath():
+        return vald_batch_list_lr[:FLAGS.RNN_N]
+
     curHRpath = tf.cond( useValData_ph, getValdHRpath, getTrainHRpath )
-                
+    curLRpath = tf.cond(useValData_ph, getValdLRpath, getTrainLRpath)
+
     return Data(
         paths_HR=curHRpath,
         s_inputs=S_inputs_frames,       # batch, frame, FLAGS.crop_size, FLAGS.crop_size, sn
